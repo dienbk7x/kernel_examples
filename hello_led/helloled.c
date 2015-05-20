@@ -16,6 +16,8 @@
 static void blink_led(struct work_struct *w);
 DECLARE_DELAYED_WORK(helloled_task, blink_led);
 
+static bool run;
+
 static ssize_t set_value(struct device *dev,
 			struct device_attribute *attr,
 			const char *buf, size_t count) {
@@ -70,6 +72,21 @@ static void blink_led(struct work_struct *w) {
 	if (run) schedule_delayed_work(&helloled_task, HZ);
 }
 
+static irqreturn_t helloled_isr(int irq, void *data)
+{
+
+	pr_alert ("helloled: handling irq\n");
+
+	if (run) {
+		run = 0;
+	} else {
+		run = 1;
+		schedule_delayed_work(&helloled_task, HZ);
+	}
+
+	return IRQ_HANDLED;
+}
+
 static struct kobject *hello_obj = NULL;
 
 static int __init hello_init(void) {
@@ -85,6 +102,32 @@ static int __init hello_init(void) {
 	ret = gpio_direction_output(PIO_LED, 1);
 	if (ret != 0) {
 		pr_alert("helloled: setting direction failed\n");
+		return ret;
+	}
+
+	ret = gpio_request(PIO_IRQ,"IRQ");
+	if (ret != 0) {
+		pr_alert ("helloled: request gpio failed\n");
+		return ret;
+	}
+
+	ret = gpio_direction_input(PIO_IRQ);
+	if (ret != 0) {
+		pr_alert("helloled: setting direction failed\n");
+		return ret;
+	}
+
+	ret = gpio_to_irq(PIO_IRQ);
+	if (ret < 0) {
+		pr_alert ("helloled: getting irq for pio 113 failed with result %d\n", ret);
+		return ret;
+	} else {
+		irq_num = ret;
+	}
+
+	ret = request_irq(irq_num, helloled_isr, IRQF_TRIGGER_FALLING , "helloled.trigger", NULL);
+	if(ret) {
+		pr_alert ("helloled: requesting irq for pio 113 failed with result %d\n", ret);
 		return ret;
 	}
 
